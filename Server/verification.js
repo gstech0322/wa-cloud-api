@@ -1,18 +1,26 @@
-const VERIFY_TOKEN = "14980c8b8a96fd9e279796a61cf82c9c";
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
 function serverUp() {
-	console.log("Webhook is listening!");
+  console.log("✅ Webhook server is listening...");
 }
 
 function verifyEndpoint(req, res) {
-	if (req.query["hub.mode"] === "subscribe" &&
-		req.query["hub.verify_token"] === VERIFY_TOKEN) {
-		console.log("Webhook verified!");
-		res.status(200).send(req.query["hub.challenge"]);
-	} else {
-		console.error("Failed validation. Validation tokens do not match.");
-		res.sendStatus(403);
-	}
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (!VERIFY_TOKEN) {
+    console.error("VERIFY_TOKEN is not set in environment variables.");
+    return res.sendStatus(500);
+  }
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("✅ Webhook verified successfully.");
+    return res.status(200).send(challenge);
+  }
+
+  console.error("❌ Webhook verification failed. Tokens do not match.");
+  return res.sendStatus(403);
 }
 
 module.exports = { serverUp, verifyEndpoint };
