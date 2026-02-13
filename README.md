@@ -1,5 +1,5 @@
 # WhatsApp Cloud Api implementation in React Native and Node.js  
-### A working application to send and receive WhatsApp, Messenger and Instagram messages* using Meta's Cloud Api  
+### A working application to send and receive WhatsApp, Messenger and Instagram messages using Meta's Cloud Api  
 
 ![Inbox](https://github.com/gstech0322/wa-cloud-api/blob/main/preview/inbox.jpg)
 
