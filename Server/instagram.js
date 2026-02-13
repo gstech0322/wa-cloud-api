@@ -1,87 +1,142 @@
-const http = require("axios").default;
+const axios = require("axios").default;
 
 const FB_BASE_URL = "https://graph.facebook.com/v14.0/";
 
 function receiveInstagram(req, res) {
-	//console.log("Received Notification: " + JSON.stringify(req.body));
-	req.body.entry.forEach(entry => {
-		const user_id = entry.messaging[0].sender.id;
+  try {
+    const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
 
-		if (entry.messaging[0].delivery) {
-			console.log("Delivered notification received.");
-			return;
-		}
+    entries.forEach((entry) => {
+      const messaging = entry?.messaging?.[0];
+      if (!messaging) return;
 
-		if (entry.messaging[0].read) {
-			const readed_time = entry.messaging[0].read.watermark;
-			Object.values(database.messages).forEach(message => {
-				if (message.to === user_id && message.timestamp <= readed_time) {
-					message.status = "read";
-					console.log("Message readed.");
-				}
-			});
-			return;
-		}
+      const userId = messaging?.sender?.id;
+      if (!userId) return;
 
-		if (entry.messaging[0].message.is_echo) {
-			console.log("Received message from myself.");
-			return;
-		}
+      // Delivery receipt
+      if (messaging.delivery) {
+        console.log("Delivered notification received.");
+        return;
+      }
 
-		const instagram_token = database.instagram.token;
-		http.get(FB_BASE_URL + user_id + "?access_token=" + instagram_token, {
-		}).then(response => {
-			if (response.data.id) {
-				const username = response.data.name;
-				const profile_pic = response.data.profile_pic;
-				database.users[user_id] = { channel: "instagram", name: username, profile_pic };
-				database.update(); // Needed cause async
-			}
-		});
+      // Read receipt
+      if (messaging.read?.watermark) {
+        const readTime = messaging.read.watermark;
 
-		const message_id = entry.messaging[0].message.mid;
-		const timestamp = entry.messaging[0].timestamp; // TODO: Seconds or ms?, timezone?
-		database.messages[message_id] = {
-			from: user_id,
-			timestamp,
-			status: "delivered",
-		};
+        Object.values(database.messages || {}).forEach((message) => {
+          if (
+            message?.to === userId &&
+            typeof message.timestamp === "number" &&
+            message.timestamp <= readTime
+          ) {
+            message.status = "read";
+          }
+        });
 
-		// TODO: handle attachments
-		database.messages[message_id].text = { body: entry.messaging[0].message.text };
-	});
-	database.update();
-	res.sendStatus(200);
+        console.log("Message marked as read.");
+        database.update();
+        return;
+      }
+
+      // Ignore echo messages
+      if (messaging.message?.is_echo) {
+        console.log("Received echo message (self).");
+        return;
+      }
+
+      const instagramToken = database?.instagram?.token;
+      if (!instagramToken) {
+        console.warn("Missing Instagram token in database.instagram.token");
+        return;
+      }
+
+      // Fetch user profile (non-blocking)
+      axios
+        .get(`${FB_BASE_URL}${userId}`, {
+          params: {
+            access_token: instagramToken,
+            // request fields explicitly (Graph API best practice)
+            fields: "id,name,profile_pic",
+          },
+        })
+        .then((response) => {
+          const data = response?.data;
+          if (data?.id) {
+            const username = data.name;
+            const profilePic = data.profile_pic;
+
+            database.users[userId] = {
+              channel: "instagram",
+              name: username,
+              profile_pic: profilePic,
+            };
+            database.update(); // async update
+          }
+        })
+        .catch((err) => {
+          console.warn("Failed to fetch IG user profile:", err?.message || err);
+        });
+
+      const messageId = messaging.message?.mid;
+      const timestamp = messaging.timestamp; // FB usually provides ms. keep as-is consistently.
+
+      if (!messageId || typeof timestamp !== "number") return;
+
+      database.messages[messageId] = {
+        from: userId,
+        timestamp,
+        status: "delivered",
+        text: {
+          body: messaging.message?.text || "",
+        },
+      };
+    });
+
+    database.update();
+    return res.sendStatus(200);
+  } catch (error) {
+    console.error("receiveInstagram error:", error);
+    // Still return 200 to avoid webhook retries storms, unless you WANT retries
+    return res.sendStatus(200);
+  }
 }
 
-function sendTextIG(user_id, text_msg) {
-	return new Promise((resolve, reject) => {
-		const instagram_token = database.instagram.token;
-		http.post(FB_BASE_URL + "me/messages" + "?access_token=" + instagram_token,
-			{
-				recipient: { id: user_id },
-				message: { text: text_msg }
-			}, {
-			headers: {
-				"Content-Type": "application/json",
-			}
-		}).then(response => {
-			if (response.data.message_id) {
-				const message_id = response.data.message_id;
-				database.messages[message_id] = {
-					to: user_id,
-					timestamp: Math.floor(Date.now() / 1000),
-					status: "sent",
-					text: { body: text_msg },
-				};
-				database.update();
-				resolve(message_id);
-			} else
-				reject(error);
-		}).catch(error => {
-			reject(error);
-		});
-	});
+async function sendTextIG(userId, textMsg) {
+  const instagramToken = database?.instagram?.token;
+  if (!instagramToken) throw new Error("Missing Instagram token");
+  if (!userId) throw new Error("Missing userId");
+  if (typeof textMsg !== "string" || !textMsg.trim()) throw new Error("Message is empty");
+
+  try {
+    const response = await axios.post(
+      `${FB_BASE_URL}me/messages`,
+      {
+        recipient: { id: userId },
+        message: { text: textMsg },
+      },
+      {
+        params: { access_token: instagramToken },
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    const messageId = response?.data?.message_id;
+    if (!messageId) {
+      throw new Error("Instagram API did not return message_id");
+    }
+
+    database.messages[messageId] = {
+      to: userId,
+      timestamp: Date.now(), // keep timestamps consistent with receiveInstagram (ms)
+      status: "sent",
+      text: { body: textMsg },
+    };
+
+    database.update();
+    return messageId;
+  } catch (error) {
+    throw error;
+  }
 }
 
 module.exports = { receiveInstagram, sendTextIG };
