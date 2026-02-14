@@ -1,21 +1,34 @@
 {
-	"cli": {
-		"version": ">= 0.60.0"
-	},
-	"build": {
-		"development": {
-			"android": {
-				"buildType": "apk"
-			},
-			"ios": {
-				"simulator": true
-			},
-			"env": { "GOOGLE_SERVICES_FILE": "google-services.json" }
-		},
-		"preview": {},
-		"production": {}
-	},
-	"submit": {
-		"production": {}
-	}
+  "cli": {
+    "version": ">= 3.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "GOOGLE_SERVICES_FILE": "google-services.json"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
 }
